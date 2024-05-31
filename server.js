@@ -10,8 +10,8 @@ app.use(bodyParser.json());
 const connection = mysql.createConnection({
     host: "localhost",
     user: "root",
-    password: "Noa95lokA",
-    database: "rutas_aviones"
+    password: "",
+    database: "rutasaviones"
 });
 
 // Conectamos la base de datos:
@@ -29,62 +29,115 @@ app.use((err, req, res, next) => {
     res.status(500).send('Error en el servidor');
 });
 
-app.get("/ruta", (req, res) => {
-    console.log(`entramos a las rutas`);
+app.get("/ruta", async (req, res) => {
+    console.log(`Entramos a las rutas`);
+
     const origen = req.query.origen;
     const destino = req.query.destino;
+    var ciudades = [];
+    var conexiones;
+    var origenId;
+    var destinoId;
+    var idCiudad;
+    var idDestino;
 
     if (!origen || !destino) {
         return res.status(400).json({ error: "Las ciudades de origen y destino son requeridas." });
     }
-    console.log(`salimos de las rutas`);
 
-    // Seleccionamos la lista de ciudades de la base de datos:
-    connection.query("SELECT nombre FROM ciudades", (err, result) => {
-        if (err) {
-            console.error("Error fetching cities from the database:", err);
-            return res.status(500).json({ error: "Error fetching cities from the database" });
-        }
-
-        const ciudades = result.map(row => row.nombre);
-        
-        // Validamos si las ciudades de origen y destino existen en la base de datos:
-        if (!ciudades.includes(origen) || !ciudades.includes(destino)) {
-            return res.status(404).json({ error: "Las ciudades de origen y/o destino no existen." });
-        }
-
-        connection.query("SELECT * FROM conexiones", (err, result) => {
-            if (err) {
-                console.error("Error fetching cities from the database:", err);
-                return res.status(500).json({ error: "Error fetching cities from the database" });
-            }
-
-            const conexiones = result;
-            var idCiudad;
-            var idDestino;
-
-            conexiones.forEach(element => {
-                if(element.ciudad_origen==origen)
-                    idCiudad = element.id;
-                if(element.ciudad_destino == destino)
-                    idDestino = element.id;
-            });
-
-            if (!conexiones.includes(idCiudad) || !conexiones.includes(idDestino)) {
-                return res.status(404).json({ error: "La conexion no existe." });
-            }
-
-            // Pasamos la lista de ciudades a la función de dijkstra:
-            dijkstra(ciudades, origen, destino)
-                .then(siguiente_destino => {
-                    res.json({ siguiente_destino });
-                })
-                .catch(error => {
-                    console.error("Error al buscar la ruta:", error.message);
-                    res.status(500).json({ error: "Error al buscar la ruta." });
-                });
+    try {
+        // Traducimos el nombre del origen a su id
+        origenId = await new Promise((resolve, reject) => {
+            connection.query(
+                "SELECT id FROM ciudades WHERE nombre = ?",
+                [origen],
+                (err, result) => {
+                    if (err) {
+                        console.error("Error fetching city ID from the database:", err);
+                        reject(new Error("Error fetching city ID from the database"));
+                    } else if (result.length === 0) {
+                        reject(new Error("City not found"));
+                    } else {
+                        resolve(result[0].id);
+                    }
+                }
+            );
         });
-    });
+
+        // Traducimos el nombre del destino a su id
+        destinoId = await new Promise((resolve, reject) => {
+            connection.query(
+                "SELECT id FROM ciudades WHERE nombre = ?",
+                [destino],
+                (err, result) => {
+                    if (err) {
+                        console.error("Error fetching city ID from the database:", err);
+                        reject(new Error("Error fetching city ID from the database"));
+                    } else if (result.length === 0) {
+                        reject(new Error("City not found"));
+                    } else {
+                        resolve(result[0].id);
+                    }
+                }
+            );
+        });
+
+        origenId = Number(origenId);
+        destinoId = Number(destinoId);
+
+        console.log("Esto es el origenId y el destinoId", origenId, destinoId);
+
+        // Seleccionamos la lista de ciudades de la base de datos:
+        ciudades = await new Promise((resolve, reject) => {
+            connection.query("SELECT id FROM ciudades", (err, result) => {
+                if (err) {
+                    console.error("Error fetching cities from the database:", err);
+                    reject(new Error("Error fetching cities from the database"));
+                }
+                resolve(result.map(row => row.id));
+            });
+        });
+
+        // Validamos si las ciudades de origen y destino existen en la base de datos:
+        if (!ciudades.includes(origenId) || !ciudades.includes(destinoId)) {
+            return res.status(400).json({ error: "Las ciudades de origen y/o destino no existen." });
+        }
+
+        // Seleccionamos la lista de conexiones de la base de datos:
+        conexiones = await new Promise((resolve, reject) => {
+            connection.query("SELECT * FROM conexiones", (err, result) => {
+                if (err) {
+                    console.error("Error fetching connections from the database:", err);
+                    reject(new Error("Error fetching connections from the database"));
+                }
+                resolve(result);
+            });
+        });
+
+        console.log("Esta es la lista de conexiones: ", conexiones);
+
+        conexiones.forEach(element => {
+            if (element.ciudad_origen == origenId)
+                idCiudad = element.id;
+            if (element.ciudad_destino == destinoId)
+                idDestino = element.id;
+        });
+
+        if (!idCiudad || !idDestino) {
+            return res.status(404).json({ error: "La conexion no existe." });
+        }
+
+        // Pasamos la lista de ciudades a la función de dijkstra:
+        const siguiente_destino = await dijkstra(ciudades, origenId, destinoId);
+        console.log("Este es el siguiente destino ", typeof1(siguiente_destino));
+        res.json({ siguiente_destino });
+
+    } catch (error) {
+        console.error("Error al buscar la ruta:", error.message);
+        res.status(500).json({ error: "Error al buscar la ruta." });
+    }
+
+    console.log("Salimos de las rutas");
 });
 
 function dijkstra(ciudades, origen, destino) {
@@ -98,7 +151,7 @@ function dijkstra(ciudades, origen, destino) {
         distancias[ciudad] = Infinity;
         predecesores[ciudad] = null;
         visitados[ciudad] = false;
-        conexiones[conexiones] = {};
+        conexiones[ciudad] = {};
     }
 
     // Llenamos de conexiones con los pesos de las ciudades adyacentes:
@@ -148,7 +201,7 @@ function dijkstra(ciudades, origen, destino) {
             rutaMinima.unshift(nodo);
             nodo = predecesores[nodo];
         }
-
+        console.log(rutaMinima);
         resolve(rutaMinima);
     });
 }
