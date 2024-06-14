@@ -129,7 +129,7 @@ app.get("/ruta", async (req, res) => {
 
         // Pasamos la lista de ciudades a la función de dijkstra:
         const siguiente_destino = await dijkstra(ciudades, origenId, destinoId);
-        console.log("Este es el siguiente destino ", typeof1(siguiente_destino));
+        console.log("Este es el siguiente destino ", siguiente_destino);
         res.json({ siguiente_destino });
 
     } catch (error) {
@@ -140,10 +140,17 @@ app.get("/ruta", async (req, res) => {
     console.log("Salimos de las rutas");
 });
 
-function dijkstra(ciudades, origen, destino) {
+async function dijkstra(ciudades, origen, destino) {
+    // Lista de las posibles conexiones
     const conexiones = {};
+
+    // Registro de nodos que se han visitado en el proceso de encontrar la ruta más corta. Evita leer un nodo más de una vez
     const visitados = {};
+
+    // Distancia más corta conocida desde el nodo de origen hasta cada uno de los nodos del grafo
     const distancias = {};
+
+    // Son aquellos sitios por los que pasará el avión para hacer el camino más corto
     const predecesores = {};
 
     // Inicialización de distancias y predecesores
@@ -158,7 +165,7 @@ function dijkstra(ciudades, origen, destino) {
     for (const ciudad of ciudades) {
         for (const conexion of ciudades) {
             if (ciudad !== conexion) {
-                const peso = calcularPeso(ciudad, conexion);
+                const peso = await calcularPeso(ciudad, conexion);
                 conexiones[ciudad][conexion] = peso;
             }
         }
@@ -166,44 +173,47 @@ function dijkstra(ciudades, origen, destino) {
 
     distancias[origen] = 0;
 
-    return new Promise((resolve, reject) => {
-        while (true) {
-            let nodoActual = null;
-            let distanciaMinima = Infinity;
+    while (true) {
+        let nodoActual = null;
+        let distanciaMinima = Infinity;
 
-            // Buscar el nodo no visitado con la menor distancia mínima:
-            for (const ciudad of ciudades) {
-                if (!visitados[ciudad] && distancias[ciudad] < distanciaMinima) {
-                    nodoActual = ciudad;
-                    distanciaMinima = distancias[ciudad];
-                }
-            }
-
-            if (nodoActual === null) break;
-
-            visitados[nodoActual] = true;
-
-            // Actualizamos las distancias de los vecinos no visitados del nodo actual:
-            for (const vecino in conexiones[nodoActual]) {
-                const peso = conexiones[nodoActual][vecino];
-                const distanciaTotal = distancias[nodoActual] + peso;
-                if (distanciaTotal < distancias[vecino]) {
-                    distancias[vecino] = distanciaTotal;
-                    predecesores[vecino] = nodoActual;
-                }
+        // Buscar el nodo no visitado con la menor distancia mínima:
+        for (const ciudad of ciudades) {
+            if (!visitados[ciudad] && distancias[ciudad] < distanciaMinima) {
+                nodoActual = ciudad;
+                distanciaMinima = distancias[ciudad];
             }
         }
 
-        // Reconstruimos el camino mínimo desde el destino hasta el origen:
-        const rutaMinima = [];
-        let nodo = destino;
-        while (nodo !== null) {
-            rutaMinima.unshift(nodo);
-            nodo = predecesores[nodo];
+        if (nodoActual === null) break;
+
+        visitados[nodoActual] = true;
+
+        // Actualizamos las distancias de los vecinos no visitados del nodo actual:
+        for (const vecino in conexiones[nodoActual]) {
+            const peso = conexiones[nodoActual][vecino];
+            const distanciaTotal = distancias[nodoActual] + peso;
+            if (distanciaTotal < distancias[vecino]) {
+                distancias[vecino] = distanciaTotal;
+                predecesores[vecino] = nodoActual;
+            }
         }
-        console.log(rutaMinima);
-        resolve(rutaMinima);
+    }
+
+    // Reconstruimos el camino mínimo desde el destino hasta el origen:
+    const rutaMinima = [];
+    let nodo = destino;
+    while (nodo !== null) {
+        rutaMinima.unshift(nodo);
+        nodo = predecesores[nodo];
+    }
+    
+    rutaMinima.forEach(element => {
+        console.log("Elemento dentro de rutaMinima", element);
     });
+
+    console.log(rutaMinima);
+    return rutaMinima;
 }
 
 function calcularPeso(ciudadOrigen, ciudadDestino) {
@@ -213,7 +223,7 @@ function calcularPeso(ciudadOrigen, ciudadDestino) {
         connection.query(query, [ciudadOrigen, ciudadDestino], (err, result) => {
             if (err) {
                 console.error("Error en la consulta de calcularPeso:", err);
-                reject(err); // Rechazar la promesa con el error real
+                reject(err);
             } else {
                 if (result.length === 0 || !result[0].tiempo) {
                     console.error("No connection found between", ciudadOrigen, "and", ciudadDestino);
@@ -225,6 +235,7 @@ function calcularPeso(ciudadOrigen, ciudadDestino) {
         });
     });
 }
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
